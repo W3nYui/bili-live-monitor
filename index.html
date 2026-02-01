@@ -59,6 +59,10 @@
         .scrollbar-custom::-webkit-scrollbar-track { background: transparent; }
         .scrollbar-custom::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.5); border-radius: 10px; }
         
+        /* 隐藏横向滚动条但保留功能 */
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
         /* 动画 */
         .msg-enter { animation: slideIn 0.2s cubic-bezier(0.2, 0, 0.2, 1) forwards; }
         @keyframes slideIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -80,6 +84,10 @@
         /* 移动端 Tab 激活态 */
         .mobile-tab-active { color: #23ade5; background-color: rgba(35, 173, 229, 0.1); }
         .mobile-tab-inactive { color: #64748b; }
+        
+        /* 图片加载占位 */
+        .img-loading { background-color: #e2e8f0; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
     </style>
 </head>
 <body>
@@ -96,47 +104,50 @@
         const textEncoder = new TextEncoder();
         const textDecoder = new TextDecoder();
         const OP = { HEARTBEAT: 2, HEARTBEAT_REPLY: 3, MESSAGE: 5, AUTH: 7, CONNECT_SUCCESS: 8 };
-        const CONFIG_KEY = 'bili_monitor_config_v1';
+        const CONFIG_KEY = 'bili_monitor_config_v2'; // 更新Key版本
 
         const getSafeUserColor = (uid) => {
             const hue = uid % 360;
             return `hsl(${hue}, 70%, 35%)`;
         };
 
-        const avatarCache = new Map();
+        const getAvatarUrl = (uid) => {
+            return `https://tenapi.cn/v2/biliavatar?uid=${uid}`;
+        };
 
         // ==========================================
         // 组件
         // ==========================================
-        const UserAvatar = memo(({ uid, name, className }) => {
-            const [src, setSrc] = useState(avatarCache.get(uid) || null);
-            useEffect(() => {
-                if (src || !uid) return;
-                const timer = setTimeout(() => {
-                    fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://api.bilibili.com/x/space/acc/info?mid=${uid}`)}`)
-                        .then(res => res.json())
-                        .then(data => {
-                            try {
-                                const json = JSON.parse(data.contents);
-                                if (json.code === 0 && json.data.face) {
-                                    const faceUrl = json.data.face.replace('http:', 'https:') + '@64w_64h_1c.webp';
-                                    avatarCache.set(uid, faceUrl);
-                                    setSrc(faceUrl);
-                                }
-                            } catch(e) {}
-                        }).catch(() => {});
-                }, 1000 + Math.random() * 3000);
-                return () => clearTimeout(timer);
-            }, [uid, src]);
-
-            const initial = name ? name.substring(0, 1).toUpperCase() : '?';
+        const UserAvatar = memo(({ uid, name, faceUrl, className, onClick }) => {
+            const [isError, setIsError] = useState(false);
+            const [isLoading, setIsLoading] = useState(true);
             
+            const src = faceUrl || getAvatarUrl(uid);
+            
+            if (!uid || isError) {
+                const initial = name ? name.substring(0, 1).toUpperCase() : '?';
+                return (
+                    <div onClick={onClick} className={`relative ${className} group shrink-0 rounded-full flex items-center justify-center text-white font-bold select-none bg-indigo-400 text-[10px] shadow-sm cursor-pointer`}>
+                        {initial}
+                    </div>
+                );
+            }
+
             return (
-                <div className={`relative ${className} group shrink-0`}>
-                    {src ? (
-                        <img src={src} alt={name} className="w-full h-full rounded-full object-cover border border-white/50 shadow-sm" />
-                    ) : (
-                        <div className="w-full h-full rounded-full flex items-center justify-center text-white font-bold select-none bg-indigo-400 text-[10px]">{initial}</div>
+                <div onClick={onClick} className={`relative ${className} group shrink-0 cursor-pointer`}>
+                    <img 
+                        src={src} 
+                        alt={name}
+                        loading="lazy" 
+                        className={`w-full h-full rounded-full object-cover border border-white/50 shadow-sm transition-opacity duration-300 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
+                        onLoad={() => setIsLoading(false)}
+                        onError={() => {
+                            setIsError(true);
+                            setIsLoading(false);
+                        }} 
+                    />
+                    {isLoading && (
+                        <div className="absolute inset-0 rounded-full bg-slate-200 animate-pulse"></div>
                     )}
                 </div>
             );
@@ -167,9 +178,6 @@
                         <p>电脑浏览器打开直播间 -> F12 -> Network -> 刷新 -> 搜 <code className="bg-slate-100 p-0.5 rounded">getDanmuInfo</code> -> 查看 Preview 中的 <code className="text-pink-500">token</code>。</p>
                         <p className="text-amber-600 bg-amber-50 p-2 rounded">Token必须与UID匹配，否则连接会失败。</p>
                     </div>
-                    <div className="p-3 bg-slate-50 text-right">
-                        <button onClick={onClose} className="bg-slate-800 text-white px-4 py-1.5 rounded-lg text-xs font-bold">我知道了</button>
-                    </div>
                 </div>
             </div>
         );
@@ -185,9 +193,6 @@
                         <p>部分主播使用短号（如 1），但连接服务器需要长ID。</p>
                         <p>如果自动获取失败：网页右键 -> 查看源代码 -> 搜索 <code className="text-pink-600 font-mono">"roomId":</code> 后的数字。</p>
                     </div>
-                    <div className="p-3 bg-slate-50 text-right">
-                        <button onClick={onClose} className="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold">明白了</button>
-                    </div>
                 </div>
             </div>
         );
@@ -201,7 +206,8 @@
                 const defaultState = { 
                     mode: 'web', roomId: '', realRoomId: '', token: '', uid: '', 
                     wsUrl: 'wss://broadcastlv.chat.bilibili.com/sub', 
-                    maxMessages: 200, giftTimeout: 0 
+                    maxMessages: 200, giftTimeout: 0,
+                    singleColumn: false // 新增：是否开启单列模式
                 };
                 try {
                     const saved = localStorage.getItem(CONFIG_KEY);
@@ -212,14 +218,7 @@
 
             // 保存配置到本地存储
             useEffect(() => {
-                localStorage.setItem(CONFIG_KEY, JSON.stringify({
-                    roomId: config.roomId,
-                    uid: config.uid,
-                    token: config.token,
-                    mode: config.mode,
-                    maxMessages: config.maxMessages,
-                    giftTimeout: config.giftTimeout
-                }));
+                localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
             }, [config]);
 
             const configRef = useRef(config);
@@ -231,6 +230,9 @@
             const [danmus, setDanmus] = useState([]);
             const [interactions, setInteractions] = useState([]); 
             const [superChats, setSuperChats] = useState([]); 
+            
+            // 新增：单列模式下选中的SC
+            const [activeSC, setActiveSC] = useState(null);
 
             // UI State
             const [showSettings, setShowSettings] = useState(true);
@@ -273,10 +275,10 @@
             };
 
             useEffect(() => {
-                if (giftScrollRef.current && mobileTab === 'interactions') {
+                if (giftScrollRef.current && (mobileTab === 'interactions' || config.singleColumn)) {
                     giftScrollRef.current.scrollTop = giftScrollRef.current.scrollHeight;
                 }
-            }, [interactions, mobileTab]);
+            }, [interactions, mobileTab, config.singleColumn]);
 
             // Gift Cleanup
             useEffect(() => {
@@ -396,6 +398,7 @@
                         nameColor: getSafeUserColor(info[2][0]), 
                         isAdmin: info[2][2] === 1, guard: info[7],
                         medal: info[3].length > 0 ? info[3] : null,
+                        face: null
                     };
                     setDanmus(prev => [...prev.slice(-(configRef.current.maxMessages || 200) + 1), m]);
                 } else if (cmd === 'SEND_GIFT') {
@@ -403,7 +406,8 @@
                     const newGift = { 
                         type: 'GIFT', id, time: timeStr, uid: d.uid, user: d.uname, 
                         giftName: d.giftName, num: d.num, count: d.num, action: d.action,
-                        lastUpdated: nowTimestamp
+                        lastUpdated: nowTimestamp,
+                        face: d.face 
                     };
                     setInteractions(prev => {
                         const last = prev[prev.length - 1];
@@ -418,7 +422,8 @@
                     const d = json.data;
                     setInteractions(prev => [...prev.slice(-99), { 
                         type: 'GUARD', id, time: timeStr, uid: d.uid, user: d.username, 
-                        level: {1:'总督', 2:'提督', 3:'舰长'}[d.guard_level], lastUpdated: nowTimestamp
+                        level: {1:'总督', 2:'提督', 3:'舰长'}[d.guard_level], lastUpdated: nowTimestamp,
+                        face: null 
                     }]);
                 } else if (cmd === 'SUPER_CHAT_MESSAGE') {
                     const d = json.data;
@@ -430,74 +435,142 @@
                 }
             };
 
-            const removeSC = (targetId) => setSuperChats(prev => prev.filter(sc => sc.id !== targetId));
+            const removeSC = (targetId) => {
+                setSuperChats(prev => prev.filter(sc => sc.id !== targetId));
+                if (activeSC && activeSC.id === targetId) setActiveSC(null);
+            };
 
             // ==========================================
-            // 渲染
+            // 单列模式渲染逻辑 (New)
+            // ==========================================
+            const renderSingleColumnMode = () => (
+                <div className="flex flex-col h-full w-full relative">
+                    {/* 上半部分：SC 和 礼物 (35%) */}
+                    <div className="h-[35%] min-h-[160px] flex flex-col border-b border-slate-200/50 relative">
+                        {/* SC 头像栏 (Compact Mode) */}
+                        {superChats.length > 0 && (
+                            <div className="flex items-center gap-3 p-2 overflow-x-auto scrollbar-hide bg-white/40 shrink-0 h-[60px]">
+                                <span className="text-[10px] font-bold text-amber-500 shrink-0 writing-vertical-lr transform rotate-180">SC</span>
+                                {superChats.map(sc => (
+                                    <div key={sc.id} className="relative group shrink-0" onClick={() => setActiveSC(sc)}>
+                                        <div className={`p-0.5 rounded-full ${activeSC?.id === sc.id ? 'ring-2 ring-amber-400 scale-110' : 'ring-1 ring-amber-200/50'} transition-all`}>
+                                            <UserAvatar uid={sc.uid} name={sc.user} faceUrl={sc.user_face} className="w-10 h-10" />
+                                        </div>
+                                        <span className="absolute -bottom-1 right-0 text-[8px] bg-red-500 text-white px-1 rounded-full scale-90">¥{sc.price}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* 弹出的 SC 详情卡片 (Overlay) */}
+                        {activeSC && (
+                            <div className="absolute top-16 left-2 right-2 z-50 sc-enter">
+                                <div className="p-3 rounded-xl shadow-xl text-xs text-white relative backdrop-blur-md" style={{background: activeSC.bg_color || '#c00'}}>
+                                    <div className="flex gap-3">
+                                        <UserAvatar uid={activeSC.uid} name={activeSC.user} faceUrl={activeSC.user_face} className="w-10 h-10 rounded-full border border-white/50" />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex justify-between font-bold mb-1 opacity-90 border-b border-white/20 pb-1">
+                                                <span>{activeSC.user}</span>
+                                                <span>¥{activeSC.price}</span>
+                                            </div>
+                                            <div className="leading-relaxed">{activeSC.content}</div>
+                                        </div>
+                                    </div>
+                                    <div className="absolute top-0 right-0 p-2 flex gap-2">
+                                        <button onClick={(e) => { e.stopPropagation(); removeSC(activeSC.id); }} className="text-white/60 hover:text-white"><i className="fa-solid fa-check"></i></button>
+                                        <button onClick={(e) => { e.stopPropagation(); setActiveSC(null); }} className="text-white/60 hover:text-white"><i className="fa-solid fa-xmark"></i></button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 礼物列表 */}
+                        <div className="flex-1 overflow-hidden relative flex flex-col">
+                            <div ref={giftScrollRef} className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-custom bg-white/20">
+                                {interactions.length === 0 && <div className="text-center text-slate-400 mt-4 text-[10px]">等待互动...</div>}
+                                {interactions.map((m) => (
+                                    <div key={m.id} className="text-xs flex items-center justify-between bg-white/40 p-1.5 rounded-lg shadow-sm border border-white/30 fade-in">
+                                        <div className="flex items-center gap-1 min-w-0">
+                                            <span className="font-bold text-[#fb7299] truncate max-w-[80px]">{m.user}</span>
+                                            <span className="text-slate-500 text-[10px]">{m.type === 'GUARD' ? '开通' : m.action}</span>
+                                            <span className="font-bold text-slate-700 truncate max-w-[80px]">{m.type === 'GUARD' ? m.level : m.giftName}</span>
+                                        </div>
+                                        {m.type === 'GIFT' && <span className="bg-[#fb7299] text-white px-1 rounded font-mono font-bold text-[9px]">x{m.count}</span>}
+                                    </div>
+                                ))}
+                            </div>
+                            {interactions.length > 0 && (
+                                <button onClick={()=>setInteractions([])} className="absolute bottom-1 right-2 text-slate-300 hover:text-red-400 text-xs p-1 bg-white/50 rounded backdrop-blur">
+                                    <i className="fa-solid fa-trash-can"></i>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 下半部分：弹幕 (Flex-1) */}
+                    <div className="flex-1 overflow-hidden relative">
+                         <div ref={danmuScrollRef} onScroll={handleScroll} className="h-full overflow-y-auto p-3 space-y-2 scrollbar-custom" style={{ fontSize: `${fontSize}px` }}>
+                            {danmus.length === 0 && <div className="h-full flex items-center justify-center text-slate-400/50"><i className="fa-regular fa-comments text-3xl"></i></div>}
+                            {danmus.map((m) => (
+                                <div key={m.id} className="msg-enter flex gap-2 px-1 py-1 rounded hover:bg-white/30">
+                                    <div className="flex-1 min-w-0 leading-snug break-all text-shadow-sm">
+                                        {m.guard > 0 && <span className={`mr-1 text-[9px] px-1 rounded text-white inline-block align-middle ${'badge-guard-'+m.guard}`}>{m.guard===3?'舰':m.guard===2?'提':'督'}</span>}
+                                        <span className="font-bold text-xs opacity-80 mr-1.5 cursor-pointer hover:underline" style={{color: m.nameColor}} title={m.user}>{m.user}:</span>
+                                        <span className="text-slate-800">{m.content}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        {showScrollBtn && <button onClick={scrollToBottom} className="absolute bottom-4 right-4 bg-slate-800/80 text-white w-8 h-8 rounded-full shadow-lg flex items-center justify-center animate-bounce z-10 text-xs"><i className="fa-solid fa-arrow-down"></i></button>}
+                    </div>
+                </div>
+            );
+
+            // ==========================================
+            // 渲染 Root
             // ==========================================
             return (
                 <div className="flex flex-col h-full text-slate-700">
                     {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
                     {showRoomHelp && <RoomIdHelpModal onClose={() => setShowRoomHelp(false)} />}
 
-                    {/* Header: 恢复标题与作者名显示 */}
-                    <header className="glass-panel h-14 md:h-16 flex items-center justify-between px-4 shrink-0 z-30 sticky top-0 shadow-sm">
-                        <div className="flex items-center gap-4">
-                            {/* Logo 和 作者名 */}
+                    {/* Header */}
+                    <header className={`glass-panel flex items-center justify-between px-3 shrink-0 z-30 sticky top-0 shadow-sm transition-all ${config.singleColumn ? 'h-10 md:h-12' : 'h-14 md:h-16'}`}>
+                        <div className="flex items-center gap-3">
                             <div className="flex items-center gap-2 group cursor-default">
-                                <div className="w-9 h-9 bg-white rounded-xl shadow-md flex items-center justify-center text-[#23ade5] text-xl group-hover:rotate-12 transition-transform">
+                                <div className={`bg-white rounded-lg shadow-md flex items-center justify-center text-[#23ade5] group-hover:rotate-12 transition-transform ${config.singleColumn ? 'w-6 h-6 text-sm' : 'w-9 h-9 text-xl'}`}>
                                     <i className="fa-brands fa-bilibili"></i>
                                 </div>
-                                <div className="flex flex-col">
-                                    <span className="font-bold text-lg text-slate-800 tracking-tight leading-none">Bili<span className="text-[#fb7299]">Monitor</span></span>
-                                    <span className="text-[10px] text-slate-500 font-medium tracking-wider">by_W3nYui</span>
-                                </div>
+                                {!config.singleColumn && (
+                                    <div className="flex flex-col">
+                                        <span className="font-bold text-lg text-slate-800 tracking-tight leading-none">Bili<span className="text-[#fb7299]">Monitor</span></span>
+                                        <span className="text-[10px] text-slate-500 font-medium tracking-wider">by_W3nYui</span>
+                                    </div>
+                                )}
                             </div>
                             
-                            {/* 状态栏：恢复详细信息显示 */}
-                            <div className={`hidden md:flex px-3 py-1 rounded-full text-xs font-bold items-center gap-2 border shadow-sm transition-all duration-500 max-w-[40vw] ${
+                            <div className={`flex px-2 py-0.5 rounded-full text-[10px] font-bold items-center gap-1.5 border shadow-sm transition-all duration-500 max-w-[40vw] overflow-hidden ${
                                 status === 'connected' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 
                                 status === 'connecting' ? 'bg-blue-50 text-blue-600 border-blue-200' : 
                                 'bg-slate-50 text-slate-500 border-slate-200'
                             }`}>
-                                <div className="relative flex h-2.5 w-2.5 shrink-0">
+                                <div className="relative flex h-2 w-2 shrink-0">
                                   {status === 'connected' && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
-                                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${status==='connected'?'bg-emerald-500':status==='connecting'?'bg-blue-500':'bg-slate-400'}`}></span>
+                                  <span className={`relative inline-flex rounded-full h-2 w-2 ${status==='connected'?'bg-emerald-500':status==='connecting'?'bg-blue-500':'bg-slate-400'}`}></span>
                                 </div>
-                                
-                                {status === 'connected' ? (
-                                    <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap">
-                                        {roomInfo ? (
-                                            <>
-                                                <span className="truncate max-w-[120px]" title={roomInfo.uname}>{roomInfo.uname}</span>
-                                                <span className="w-px h-3 bg-emerald-200"></span>
-                                                <span className="truncate max-w-[200px]" title={roomInfo.title}>{roomInfo.title}</span>
-                                            </>
-                                        ) : (
-                                            <span>LIVE: {config.realRoomId || config.roomId}</span>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <span>{status === 'connecting' ? 'CONNECTING...' : 'DISCONNECTED'}</span>
-                                )}
+                                <span className="truncate">{status === 'connected' ? (roomInfo?.uname || config.realRoomId) : (status === 'connecting' ? '...' : '断开')}</span>
                             </div>
                         </div>
                         
-                        <div className="flex items-center gap-3">
-                            {/* 热度显示 */}
-                            <div className="flex items-center bg-white/50 px-3 py-1.5 rounded-full border border-white/60 text-slate-700 shadow-sm backdrop-blur-md">
-                                <i className="fa-solid fa-fire text-[#fb7299] mr-2 text-xs"></i>
-                                <span className="font-mono font-bold text-sm">{popularity.toLocaleString()}</span>
+                        <div className="flex items-center gap-2">
+                             {/* 热度 */}
+                            <div className="flex items-center bg-white/50 px-2 py-1 rounded-full border border-white/60 text-slate-700 shadow-sm backdrop-blur-md">
+                                <i className="fa-solid fa-fire text-[#fb7299] mr-1.5 text-[10px]"></i>
+                                <span className="font-mono font-bold text-xs">{popularity.toLocaleString()}</span>
                             </div>
 
-                            {/* Desktop Font Size */}
-                            <div className="hidden md:flex items-center bg-white/50 border border-white/60 rounded-full px-3 py-1 gap-2 shadow-sm">
-                                <span className="text-xs text-slate-400 font-bold">Aa</span>
-                                <input type="range" min="13" max="28" step="1" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-20 h-1 bg-slate-300 rounded-lg appearance-none cursor-pointer accent-slate-600" />
-                            </div>
-
-                            <button onClick={() => setShowSettings(!showSettings)} className={`w-9 h-9 flex items-center justify-center rounded-full transition-all shadow-sm border ${showSettings ? 'bg-slate-800 text-white border-slate-800 rotate-90' : 'bg-white text-slate-600 border-white/60'}`}>
-                                <i className="fa-solid fa-gear"></i>
+                            <button onClick={() => setShowSettings(!showSettings)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shadow-sm border ${showSettings ? 'bg-slate-800 text-white border-slate-800 rotate-90' : 'bg-white text-slate-600 border-white/60'}`}>
+                                <i className="fa-solid fa-gear text-sm"></i>
                             </button>
                         </div>
                     </header>
@@ -505,171 +578,197 @@
                     {/* Main Content Area */}
                     <div className="flex-1 flex overflow-hidden relative">
                         
-                        {/* 1. Settings Sidebar (Off-canvas) - 恢复全部设置选项 */}
+                        {/* Settings Sidebar */}
                         <div className={`absolute inset-y-0 left-0 w-full md:w-80 z-50 transition-transform duration-300 ${showSettings ? 'translate-x-0' : '-translate-x-full'}`}>
                             <div className="h-full glass-panel md:rounded-r-2xl shadow-2xl flex flex-col overflow-hidden bg-white/95">
-                                <div className="p-6 space-y-6 h-full overflow-y-auto">
-                                    <div className="flex justify-between items-center border-b pb-4">
-                                        <h3 className="font-bold text-slate-800 text-lg">设置</h3>
-                                        <button onClick={() => setShowSettings(false)} className="bg-slate-100 w-8 h-8 rounded-full text-slate-500"><i className="fa-solid fa-xmark"></i></button>
+                                <div className="p-5 space-y-5 h-full overflow-y-auto">
+                                    <div className="flex justify-between items-center border-b pb-3">
+                                        <h3 className="font-bold text-slate-800">监控设置</h3>
+                                        <button onClick={() => setShowSettings(false)} className="bg-slate-100 w-7 h-7 rounded-full text-slate-500 text-sm"><i className="fa-solid fa-xmark"></i></button>
                                     </div>
-                                    <div className="space-y-5">
-                                        <div className="group">
-                                            <div className="flex justify-between items-center mb-2">
-                                                <label className="text-xs font-bold text-slate-500 block">ROOM ID</label>
-                                                <button onClick={() => setShowRoomHelp(true)} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full"><i className="fa-regular fa-circle-question mr-1"></i>帮助</button>
-                                            </div>
-                                            <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm font-bold font-mono outline-none focus:ring-2 ring-blue-500/20" 
-                                                value={config.roomId} onChange={e=>setConfig({...config, roomId:e.target.value})} placeholder="直播间号" />
-                                            {/* 真实ID显示 */}
-                                            {config.realRoomId && config.realRoomId != config.roomId && (
-                                                <div className="text-[10px] text-emerald-600 font-bold font-mono mt-2 pl-1 flex items-center">
-                                                    <i className="fa-solid fa-link mr-1.5"></i>
-                                                    Real ID: {config.realRoomId}
+                                    <div className="space-y-4">
+                                        {/* 模式切换 (New) */}
+                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${config.singleColumn ? 'bg-indigo-100 text-indigo-500' : 'bg-slate-200 text-slate-500'}`}>
+                                                        <i className={`fa-solid ${config.singleColumn ? 'fa-table-columns' : 'fa-table-cells'}`}></i>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-xs font-bold text-slate-700">单列模式</div>
+                                                        <div className="text-[10px] text-slate-400">适合侧边栏/手机/OBS</div>
+                                                    </div>
                                                 </div>
-                                            )}
+                                                <label className="relative inline-flex items-center cursor-pointer">
+                                                    <input type="checkbox" className="sr-only peer" checked={config.singleColumn} onChange={e => setConfig({...config, singleColumn: e.target.checked})} />
+                                                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500"></div>
+                                                </label>
+                                            </div>
                                         </div>
 
-                                        {/* 恢复 My UID 输入 */}
                                         <div className="group">
-                                            <label className="text-xs font-bold text-slate-500 mb-2 block">MY UID</label>
-                                            <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-sm font-mono outline-none focus:ring-2 ring-blue-500/20" 
+                                            <div className="flex justify-between items-center mb-1.5">
+                                                <label className="text-xs font-bold text-slate-500 block">ROOM ID</label>
+                                                <button onClick={() => setShowRoomHelp(true)} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">帮助</button>
+                                            </div>
+                                            <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm font-bold font-mono outline-none focus:ring-2 ring-blue-500/20" 
+                                                value={config.roomId} onChange={e=>setConfig({...config, roomId:e.target.value})} placeholder="直播间号" />
+                                        </div>
+
+                                        <div className="group">
+                                            <label className="text-xs font-bold text-slate-500 mb-1.5 block">MY UID</label>
+                                            <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm font-mono outline-none focus:ring-2 ring-blue-500/20" 
                                                 value={config.uid} onChange={e=>setConfig({...config, uid:e.target.value})} placeholder="输入您的UID" />
                                         </div>
 
                                         <div className="group">
-                                            <div className="flex justify-between mb-2"><label className="text-xs font-bold text-slate-500">TOKEN (可选)</label><button onClick={()=>setShowHelp(true)} className="text-blue-500 text-xs">帮助</button></div>
-                                            <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-600 text-xs font-mono outline-none focus:ring-2 ring-blue-500/20" 
+                                            <div className="flex justify-between mb-1.5"><label className="text-xs font-bold text-slate-500">TOKEN</label><button onClick={()=>setShowHelp(true)} className="text-blue-500 text-[10px]">获取教程</button></div>
+                                            <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-600 text-xs font-mono outline-none focus:ring-2 ring-blue-500/20" 
                                                 value={config.token} onChange={e=>setConfig({...config, token:e.target.value})} placeholder="粘贴 Token..." />
                                         </div>
 
-                                        {/* 恢复历史消息与超时设置 */}
                                         <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200/50">
                                             <div className="group">
-                                                <label className="text-[10px] font-bold text-slate-500 mb-1.5 block">MAX HISTORY</label>
+                                                <label className="text-[10px] font-bold text-slate-500 mb-1 block">MAX HISTORY</label>
                                                 <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 text-xs outline-none focus:border-blue-400 font-mono" 
                                                     value={config.maxMessages} 
-                                                    onChange={e=>setConfig({...config, maxMessages: Math.max(10, parseInt(e.target.value) || 200)})} 
-                                                    placeholder="200" min="10" />
+                                                    onChange={e=>setConfig({...config, maxMessages: Math.max(10, parseInt(e.target.value) || 200)})} />
                                             </div>
                                             <div className="group">
-                                                <label className="text-[10px] font-bold text-slate-500 mb-1.5 block">GIFT TIMEOUT (S)</label>
+                                                <label className="text-[10px] font-bold text-slate-500 mb-1 block">GIFT TIMEOUT (S)</label>
                                                 <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 text-xs outline-none focus:border-blue-400 font-mono" 
                                                     value={config.giftTimeout} 
                                                     onChange={e=>setConfig({...config, giftTimeout: Math.max(0, parseInt(e.target.value) || 0)})} 
-                                                    placeholder="0 = Forever" min="0" />
+                                                    placeholder="0" />
                                             </div>
                                         </div>
 
-                                        {/* Mobile Font Size Control */}
-                                        <div className="md:hidden pt-4 border-t">
+                                        <div className="pt-2 border-t">
                                             <label className="text-xs font-bold text-slate-500 block mb-2">字体大小: {fontSize}px</label>
-                                            <input type="range" min="12" max="24" step="1" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none accent-blue-500" />
+                                            <input type="range" min="12" max="28" step="1" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none accent-blue-500" />
                                         </div>
                                     </div>
-                                    <div className="pt-4 mt-auto">
+                                    <div className="pt-2 mt-auto">
                                         {status === 'connected' ? 
-                                            <button onClick={() => disconnect(true)} className="w-full bg-red-50 text-red-500 py-3 rounded-xl font-bold border border-red-100">断开连接</button> :
-                                            <button onClick={connect} disabled={status === 'connecting'} className="w-full bg-[#23ade5] text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-200 disabled:opacity-50">
+                                            <button onClick={() => disconnect(true)} className="w-full bg-red-50 text-red-500 py-2.5 rounded-xl font-bold border border-red-100 text-sm">断开连接</button> :
+                                            <button onClick={connect} disabled={status === 'connecting'} className="w-full bg-[#23ade5] text-white py-2.5 rounded-xl font-bold shadow-lg shadow-blue-200 disabled:opacity-50 text-sm">
                                                 {status === 'connecting' ? '连接中...' : '开始监听'}
                                             </button>
                                         }
-                                        <p className="text-[10px] text-center text-slate-400 mt-4 font-medium">配置会自动保存至浏览器</p>
                                     </div>
                                 </div>
                             </div>
-                            {/* Backdrop for mobile */}
                             <div className="absolute inset-0 bg-black/20 z-[-1] md:hidden" onClick={() => setShowSettings(false)}></div>
                         </div>
 
-                        {/* 2. Chat Area */}
-                        <div 
-                            className={`flex-1 flex flex-col min-w-0 relative z-10 md:my-4 md:ml-4 md:rounded-2xl glass-panel md:shadow-lg overflow-hidden transition-all duration-300
-                            ${mobileTab === 'chat' ? 'opacity-100 z-20' : 'opacity-0 md:opacity-100 absolute md:relative inset-0 z-0 pointer-events-none md:pointer-events-auto'}`}
-                        >
-                            <div ref={danmuScrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-custom" style={{ fontSize: `${fontSize}px` }}>
-                                {danmus.length === 0 && <div className="h-full flex items-center justify-center text-slate-400/50"><i className="fa-regular fa-comments text-4xl"></i></div>}
-                                {danmus.map((m) => (
-                                    <div key={m.id} className="msg-enter flex gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/40">
-                                        <UserAvatar uid={m.uid} name={m.user} className="w-8 h-8 text-xs mt-0.5" />
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-                                                {m.medal && <Medals data={m.medal} />}
-                                                {m.guard > 0 && <span className={`text-[9px] px-1 rounded text-white ${'badge-guard-'+m.guard}`}>{m.guard===3?'舰':m.guard===2?'提':'督'}</span>}
-                                                <span className="font-bold text-xs opacity-90 truncate" style={{color: m.nameColor}}>{m.user}</span>
-                                            </div>
-                                            <div className="leading-snug text-slate-800 break-all">{m.content}</div>
-                                        </div>
-                                    </div>
-                                ))}
+                        {/* 视图渲染逻辑分支 */}
+                        {config.singleColumn ? (
+                            /* 分支 A: 单列模式 (Single Column Mode) */
+                            <div className="flex-1 glass-panel md:rounded-2xl md:my-4 md:mx-4 overflow-hidden shadow-lg">
+                                {renderSingleColumnMode()}
                             </div>
-                            {showScrollBtn && <button onClick={scrollToBottom} className="absolute bottom-6 right-6 bg-slate-800 text-white w-10 h-10 rounded-full shadow-xl flex items-center justify-center animate-bounce"><i className="fa-solid fa-arrow-down"></i></button>}
-                        </div>
-
-                        {/* 3. Interactions Area (Mobile: Tab Switch, Desktop: Right Sidebar) */}
-                        <div 
-                            className={`md:w-80 flex flex-col shrink-0 z-10 md:mr-4 md:my-4 space-y-3 
-                            ${mobileTab === 'interactions' ? 'absolute inset-0 bg-white/90 z-20 p-4 md:static md:bg-transparent md:p-0' : 'hidden md:flex'}`}
-                        >
-                            {/* Super Chats */}
-                            {superChats.length > 0 && (
-                                <div className="glass-panel rounded-xl overflow-hidden shadow-md flex flex-col max-h-[40vh] shrink-0 border-amber-200/50">
-                                    <div className="h-8 bg-gradient-to-r from-amber-50 to-white flex items-center justify-between px-3 border-b border-amber-100">
-                                        <span className="text-xs font-bold text-amber-500">SUPER CHATS ({superChats.length})</span>
-                                    </div>
-                                    <div className="overflow-y-auto p-2 space-y-2 scrollbar-custom bg-white/30">
-                                        {superChats.map(sc => (
-                                            <div key={sc.id} onClick={() => removeSC(sc.id)} className="sc-enter p-2 rounded-lg shadow-sm text-xs text-white relative cursor-pointer" style={{background: sc.bg_color || '#c00'}}>
-                                                <div className="flex justify-between font-bold mb-1 opacity-90"><span>{sc.user}</span><span>¥{sc.price}</span></div>
-                                                <div>{sc.content}</div>
-                                                <i className="fa-solid fa-xmark absolute top-1 right-1 opacity-50"></i>
+                        ) : (
+                            /* 分支 B: 标准双栏/Tab模式 (Standard Mode) */
+                            <>
+                                {/* Chat Area */}
+                                <div 
+                                    className={`flex-1 flex flex-col min-w-0 relative z-10 md:my-4 md:ml-4 md:rounded-2xl glass-panel md:shadow-lg overflow-hidden transition-all duration-300
+                                    ${mobileTab === 'chat' ? 'opacity-100 z-20' : 'opacity-0 md:opacity-100 absolute md:relative inset-0 z-0 pointer-events-none md:pointer-events-auto'}`}
+                                >
+                                    <div ref={danmuScrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-custom" style={{ fontSize: `${fontSize}px` }}>
+                                        {danmus.length === 0 && <div className="h-full flex items-center justify-center text-slate-400/50"><i className="fa-regular fa-comments text-4xl"></i></div>}
+                                        {danmus.map((m) => (
+                                            <div key={m.id} className="msg-enter flex gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/40">
+                                                <UserAvatar uid={m.uid} name={m.user} faceUrl={m.face} className="w-8 h-8 text-xs mt-0.5" />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                                                        {m.medal && <Medals data={m.medal} />}
+                                                        {m.guard > 0 && <span className={`text-[9px] px-1 rounded text-white ${'badge-guard-'+m.guard}`}>{m.guard===3?'舰':m.guard===2?'提':'督'}</span>}
+                                                        <span className="font-bold text-xs opacity-90 truncate" style={{color: m.nameColor}}>{m.user}</span>
+                                                    </div>
+                                                    <div className="leading-snug text-slate-800 break-all">{m.content}</div>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
+                                    {showScrollBtn && <button onClick={scrollToBottom} className="absolute bottom-6 right-6 bg-slate-800 text-white w-10 h-10 rounded-full shadow-xl flex items-center justify-center animate-bounce"><i className="fa-solid fa-arrow-down"></i></button>}
                                 </div>
-                            )}
 
-                            {/* Gifts & Logs */}
-                            <div className="glass-panel rounded-xl overflow-hidden shadow-md flex-1 flex flex-col min-h-0">
-                                <div className="h-9 bg-white/40 border-b flex items-center px-3 justify-between">
-                                    <span className="text-xs font-bold text-slate-500">互动记录</span>
-                                    <button onClick={()=>setInteractions([])} className="text-slate-400 hover:text-red-400"><i className="fa-solid fa-trash-can"></i></button>
-                                </div>
-                                <div ref={giftScrollRef} className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-custom bg-white/20">
-                                    {interactions.length === 0 && <div className="text-center text-slate-400 mt-8 text-xs">暂无礼物</div>}
-                                    {interactions.map((m) => (
-                                        <div key={m.id} className="text-xs flex items-center justify-between bg-white/60 p-2 rounded-lg border border-white/50 shadow-sm">
-                                            <div className="truncate pr-2">
-                                                <span className="font-bold text-[#fb7299]">{m.user}</span>
-                                                <span className="text-slate-500 mx-1">{m.type === 'GUARD' ? '开通了' : m.action}</span>
-                                                <span className="font-bold text-slate-700">{m.type === 'GUARD' ? m.level : m.giftName}</span>
+                                {/* Interactions Area */}
+                                <div 
+                                    className={`md:w-80 flex flex-col shrink-0 z-10 md:mr-4 md:my-4 space-y-3 
+                                    ${mobileTab === 'interactions' ? 'absolute inset-0 bg-white/90 z-20 p-4 md:static md:bg-transparent md:p-0' : 'hidden md:flex'}`}
+                                >
+                                    {/* Super Chats (Desktop Standard) */}
+                                    {superChats.length > 0 && (
+                                        <div className="glass-panel rounded-xl overflow-hidden shadow-md flex flex-col max-h-[40vh] shrink-0 border-amber-200/50">
+                                            <div className="h-8 bg-gradient-to-r from-amber-50 to-white flex items-center justify-between px-3 border-b border-amber-100">
+                                                <span className="text-xs font-bold text-amber-500">SUPER CHATS ({superChats.length})</span>
                                             </div>
-                                            {m.type === 'GIFT' && <span className="bg-[#fb7299] text-white px-1.5 rounded font-mono font-bold text-[10px]">x{m.count}</span>}
+                                            <div className="overflow-y-auto p-2 space-y-2 scrollbar-custom bg-white/30">
+                                                {superChats.map(sc => (
+                                                    <div key={sc.id} onClick={() => removeSC(sc.id)} className="sc-enter p-2 rounded-lg shadow-sm text-xs text-white relative cursor-pointer" style={{background: sc.bg_color || '#c00'}}>
+                                                        <div className="flex gap-2">
+                                                            <UserAvatar uid={sc.uid} name={sc.user} faceUrl={sc.user_face} className="w-8 h-8 rounded-full border border-white/50" />
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex justify-between font-bold mb-1 opacity-90"><span>{sc.user}</span><span>¥{sc.price}</span></div>
+                                                                <div>{sc.content}</div>
+                                                            </div>
+                                                        </div>
+                                                        <i className="fa-solid fa-xmark absolute top-1 right-1 opacity-50 p-1"></i>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
-                                    ))}
+                                    )}
+
+                                    {/* Gifts & Logs */}
+                                    <div className="glass-panel rounded-xl overflow-hidden shadow-md flex-1 flex flex-col min-h-0">
+                                        <div className="h-9 bg-white/40 border-b flex items-center px-3 justify-between">
+                                            <span className="text-xs font-bold text-slate-500">互动记录</span>
+                                            <button onClick={()=>setInteractions([])} className="text-slate-400 hover:text-red-400"><i className="fa-solid fa-trash-can"></i></button>
+                                        </div>
+                                        <div ref={giftScrollRef} className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-custom bg-white/20">
+                                            {interactions.length === 0 && <div className="text-center text-slate-400 mt-8 text-xs">暂无礼物</div>}
+                                            {interactions.map((m) => (
+                                                <div key={m.id} className="text-xs flex items-center justify-between bg-white/60 p-2 rounded-lg border border-white/50 shadow-sm">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <div className="truncate pr-2">
+                                                            <span className="font-bold text-[#fb7299]">{m.user}</span>
+                                                            <span className="text-slate-500 mx-1">{m.type === 'GUARD' ? '开通了' : m.action}</span>
+                                                            <span className="font-bold text-slate-700">{m.type === 'GUARD' ? m.level : m.giftName}</span>
+                                                        </div>
+                                                    </div>
+                                                    {m.type === 'GIFT' && <span className="bg-[#fb7299] text-white px-1.5 rounded font-mono font-bold text-[10px]">x{m.count}</span>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
+                            </>
+                        )}
                     </div>
 
-                    {/* 4. Mobile Bottom Navigation Tab */}
-                    <div className="md:hidden shrink-0 h-14 bg-white/80 backdrop-blur-md border-t border-slate-200 flex items-center justify-around z-50 pb-safe">
-                        <button 
-                            onClick={() => setMobileTab('chat')} 
-                            className={`flex flex-col items-center gap-0.5 px-6 py-1 rounded-xl transition-colors ${mobileTab === 'chat' ? 'text-[#23ade5]' : 'text-slate-400'}`}
-                        >
-                            <i className="fa-solid fa-comments text-lg"></i>
-                            <span className="text-[10px] font-bold">弹幕</span>
-                        </button>
-                        <button 
-                            onClick={() => setMobileTab('interactions')} 
-                            className={`flex flex-col items-center gap-0.5 px-6 py-1 rounded-xl transition-colors ${mobileTab === 'interactions' ? 'text-[#fb7299]' : 'text-slate-400'}`}
-                        >
-                            <i className="fa-solid fa-gift text-lg"></i>
-                            <span className="text-[10px] font-bold">礼物/SC</span>
-                            {(interactions.length > 0 || superChats.length > 0) && <span className="absolute top-3 ml-4 w-2 h-2 bg-red-500 rounded-full border border-white"></span>}
-                        </button>
-                    </div>
+                    {/* Mobile Bottom Navigation Tab (Only show in Standard Mode) */}
+                    {!config.singleColumn && (
+                        <div className="md:hidden shrink-0 h-14 bg-white/80 backdrop-blur-md border-t border-slate-200 flex items-center justify-around z-50 pb-safe">
+                            <button 
+                                onClick={() => setMobileTab('chat')} 
+                                className={`flex flex-col items-center gap-0.5 px-6 py-1 rounded-xl transition-colors ${mobileTab === 'chat' ? 'text-[#23ade5]' : 'text-slate-400'}`}
+                            >
+                                <i className="fa-solid fa-comments text-lg"></i>
+                                <span className="text-[10px] font-bold">弹幕</span>
+                            </button>
+                            <button 
+                                onClick={() => setMobileTab('interactions')} 
+                                className={`flex flex-col items-center gap-0.5 px-6 py-1 rounded-xl transition-colors ${mobileTab === 'interactions' ? 'text-[#fb7299]' : 'text-slate-400'}`}
+                            >
+                                <i className="fa-solid fa-gift text-lg"></i>
+                                <span className="text-[10px] font-bold">礼物/SC</span>
+                                {(interactions.length > 0 || superChats.length > 0) && <span className="absolute top-3 ml-4 w-2 h-2 bg-red-500 rounded-full border border-white"></span>}
+                            </button>
+                        </div>
+                    )}
                 </div>
             );
         }
