@@ -118,6 +118,78 @@
         // ==========================================
         // 组件
         // ==========================================
+        
+        // 可拖动悬浮按钮组件
+        const DraggableFab = ({ onClick, icon }) => {
+            const [pos, setPos] = useState({ x: window.innerWidth - 60, y: window.innerHeight - 120 });
+            const isDraggingRef = useRef(false);
+            const offsetRef = useRef({ x: 0, y: 0 });
+            const startPosRef = useRef({ x: 0, y: 0 });
+
+            const handleStart = (clientX, clientY) => {
+                isDraggingRef.current = false;
+                startPosRef.current = { x: clientX, y: clientY };
+                offsetRef.current = {
+                    x: clientX - pos.x,
+                    y: clientY - pos.y
+                };
+            };
+
+            const handleMove = (clientX, clientY) => {
+                // 如果移动距离超过 5px，则视为拖动
+                if (Math.abs(clientX - startPosRef.current.x) > 5 || Math.abs(clientY - startPosRef.current.y) > 5) {
+                    isDraggingRef.current = true;
+                }
+                
+                let newX = clientX - offsetRef.current.x;
+                let newY = clientY - offsetRef.current.y;
+
+                // 边界限制
+                newX = Math.max(10, Math.min(window.innerWidth - 50, newX));
+                newY = Math.max(10, Math.min(window.innerHeight - 50, newY));
+
+                setPos({ x: newX, y: newY });
+            };
+
+            // Touch Events
+            const onTouchStart = (e) => handleStart(e.touches[0].clientX, e.touches[0].clientY);
+            const onTouchMove = (e) => {
+                e.preventDefault(); // 防止滚动屏幕
+                handleMove(e.touches[0].clientX, e.touches[0].clientY);
+            };
+            
+            // Mouse Events
+            const onMouseDown = (e) => {
+                handleStart(e.clientX, e.clientY);
+                const moveHandler = (ev) => handleMove(ev.clientX, ev.clientY);
+                const upHandler = () => {
+                    document.removeEventListener('mousemove', moveHandler);
+                    document.removeEventListener('mouseup', upHandler);
+                };
+                document.addEventListener('mousemove', moveHandler);
+                document.addEventListener('mouseup', upHandler);
+            };
+
+            const handleClick = (e) => {
+                if (!isDraggingRef.current) {
+                    onClick();
+                }
+            };
+
+            return (
+                <div 
+                    className="fixed z-[100] w-12 h-12 rounded-full bg-slate-800 text-white shadow-2xl flex items-center justify-center cursor-move touch-none active:scale-95 transition-transform border border-slate-600/50"
+                    style={{ left: pos.x, top: pos.y }}
+                    onTouchStart={onTouchStart}
+                    onTouchMove={onTouchMove}
+                    onMouseDown={onMouseDown}
+                    onClick={handleClick}
+                >
+                    {icon}
+                </div>
+            );
+        };
+
         const UserAvatar = memo(({ uid, name, faceUrl, className, onClick }) => {
             const [isError, setIsError] = useState(false);
             const [isLoading, setIsLoading] = useState(true);
@@ -529,10 +601,18 @@
             // ==========================================
             // 渲染 Root
             // ==========================================
+            // 检测是否需要显示浮动按钮：单列模式 OR 屏幕宽度小于768px
+            const showFloatingBtn = config.singleColumn || window.innerWidth < 768;
+
             return (
                 <div className="flex flex-col h-full text-slate-700">
                     {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
                     {showRoomHelp && <RoomIdHelpModal onClose={() => setShowRoomHelp(false)} />}
+                    
+                    {/* 浮动设置按钮 (只在单列模式或小屏幕下显示，且设置面板未打开时) */}
+                    {showFloatingBtn && !showSettings && (
+                        <DraggableFab onClick={() => setShowSettings(true)} icon={<i className="fa-solid fa-gear text-xl"></i>} />
+                    )}
 
                     {/* Header */}
                     <header className={`glass-panel flex items-center justify-between px-3 shrink-0 z-30 sticky top-0 shadow-sm transition-all ${config.singleColumn ? 'h-10 md:h-12' : 'h-14 md:h-16'}`}>
@@ -569,9 +649,12 @@
                                 <span className="font-mono font-bold text-xs">{popularity.toLocaleString()}</span>
                             </div>
 
-                            <button onClick={() => setShowSettings(!showSettings)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shadow-sm border ${showSettings ? 'bg-slate-800 text-white border-slate-800 rotate-90' : 'bg-white text-slate-600 border-white/60'}`}>
-                                <i className="fa-solid fa-gear text-sm"></i>
-                            </button>
+                            {/* 在非单列模式下保留Header中的设置按钮，作为备用或桌面端使用 */}
+                            {!config.singleColumn && (
+                                <button onClick={() => setShowSettings(!showSettings)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-all shadow-sm border ${showSettings ? 'bg-slate-800 text-white border-slate-800 rotate-90' : 'bg-white text-slate-600 border-white/60'}`}>
+                                    <i className="fa-solid fa-gear text-sm"></i>
+                                </button>
+                            )}
                         </div>
                     </header>
 
